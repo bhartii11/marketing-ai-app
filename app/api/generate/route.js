@@ -105,6 +105,7 @@ export async function POST(req) {
       campaign = "",
       website = "",
       description = "",
+      selectedPlanSteps = [],
       selectedActions = [],
       step = "suggestions",
       attachmentName = "",
@@ -113,6 +114,14 @@ export async function POST(req) {
     if (step === "suggestions") {
       const prompt = `Return ONLY valid JSON with this shape:
 {
+  "marketingPlan": [
+    {
+      "id": "step-1",
+      "title": "Step 1: ...",
+      "description": "...",
+      "channels": ["LinkedIn", "Email"]
+    }
+  ],
   "suggestions": ["...","...","...","..."],
   "recommendedActions": ["...","...","..."],
   "aiMessage": "..."
@@ -126,8 +135,10 @@ Context:
 - Description: ${description}
 
 Rules:
-- suggestions: exactly 4 short campaign ideas.
-- recommendedActions: 3-5 items from: LinkedIn Post, Email Campaign, WhatsApp Outreach, Naukri Job Post, Ad Copy, SMS Campaign.
+- marketingPlan: 4 to 10 detailed plan steps.
+- Each step should include id, title, description (2-3 lines), and channels array.
+- suggestions: 4 to 8 short campaign ideas.
+- recommendedActions: 3-6 channels based on plan steps (e.g. LinkedIn, Email, WhatsApp, Instagram, Blog, SMS, Naukri, Ad Copy).
 - aiMessage: 1-2 short lines.`;
 
       const raw = await callOpenAI({
@@ -143,7 +154,23 @@ Rules:
                 type: "array",
                 items: { type: "string" },
                 minItems: 4,
-                maxItems: 4,
+                maxItems: 8,
+              },
+              marketingPlan: {
+                type: "array",
+                minItems: 4,
+                maxItems: 10,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    id: { type: "string" },
+                    title: { type: "string" },
+                    description: { type: "string" },
+                    channels: { type: "array", items: { type: "string" } },
+                  },
+                  required: ["id", "title", "description", "channels"],
+                },
               },
               recommendedActions: {
                 type: "array",
@@ -153,7 +180,7 @@ Rules:
               },
               aiMessage: { type: "string" },
             },
-            required: ["suggestions", "recommendedActions", "aiMessage"],
+            required: ["marketingPlan", "suggestions", "recommendedActions", "aiMessage"],
           },
         },
       });
@@ -183,6 +210,7 @@ Context:
 - Website: ${website}
 - Attachment: ${attachmentName}
 - Description: ${description}
+- Selected marketing plan steps: ${Array.isArray(selectedPlanSteps) ? selectedPlanSteps.join(" | ") : ""}
 - Selected actions: ${safeActions.join(", ")}
 
 Rules:

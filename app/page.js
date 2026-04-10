@@ -1,37 +1,57 @@
 ﻿"use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CircleHelp } from "lucide-react";
 import Image from "next/image";
 import ChatBox from "../components/ChatBox";
 import SuggestionsPanel from "../components/SuggestionsPanel";
 import NextBestActions from "../components/NextBestActions";
 import OutputCard from "../components/OutputCard";
+import SendModal from "../components/SendModal";
 
-const DEFAULT_SUGGESTIONS = [
-  "Run Hiring Campaign",
-  "Promote Job Opening",
-  "Build Employer Branding",
-  "Target MuleSoft Developers",
-];
+const DEFAULT_ACTIONS = ["LinkedIn", "Email", "WhatsApp", "Instagram", "Blog", "SMS"];
 
-const DEFAULT_ACTIONS = [
-  "LinkedIn Post",
-  "Email Campaign",
-  "WhatsApp Outreach",
-  "Naukri Job Post",
-  "Ad Copy",
-  "SMS Campaign",
+const DEFAULT_MARKETING_PLAN = [
+  {
+    id: "step-1",
+    title: "Step 1: Define Target Audience",
+    description:
+      "Identify ideal candidate persona, industry segments, and role seniority. Prioritize audience quality to improve conversion from impression to application.",
+    channels: ["LinkedIn", "Email"],
+  },
+  {
+    id: "step-2",
+    title: "Step 2: Build Content Strategy",
+    description:
+      "Create channel-specific messaging pillars like salary transparency, growth path, and project exposure. Keep content concise and role-focused.",
+    channels: ["LinkedIn", "Instagram", "Blog", "Email"],
+  },
+  {
+    id: "step-3",
+    title: "Step 3: Execute Outreach",
+    description:
+      "Run outbound and inbound outreach through targeted shortlists and warm leads. Use personalized communication and clear call-to-action.",
+    channels: ["Email", "WhatsApp", "Naukri"],
+  },
+  {
+    id: "step-4",
+    title: "Step 4: Retarget and Optimize",
+    description:
+      "Retarget engaged users with reminder touchpoints and proof points. Iterate weekly using response trends and channel-level performance.",
+    channels: ["LinkedIn", "Instagram", "SMS"],
+  },
 ];
 
 const getId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+const deriveActionsFromPlanSteps = (steps, selectedIds) => {
+  const selected = steps.filter((step) => selectedIds.includes(step.id));
+  return Array.from(new Set(selected.flatMap((step) => step.channels || [])));
+};
+
 const toActionResponseMap = (raw) => {
   if (!raw || typeof raw !== "object") return {};
   const mapped = raw.outputs && typeof raw.outputs === "object" ? { ...raw.outputs } : {};
-  if (raw.linkedin && !mapped["LinkedIn Post"]) mapped["LinkedIn Post"] = raw.linkedin;
-  if (raw.email && !mapped["Email Campaign"]) mapped["Email Campaign"] = raw.email;
-  if (raw.whatsapp && !mapped["WhatsApp Outreach"]) mapped["WhatsApp Outreach"] = raw.whatsapp;
   return mapped;
 };
 
@@ -60,12 +80,12 @@ export default function Home() {
       id: getId(),
       role: "assistant",
       content:
-        "Share your campaign brief here. I will suggest strategy options and the best channels to generate content.",
+        "Share your campaign brief here. I will build a detailed marketing plan, suggest channels, and generate content.",
     },
   ]);
 
-  const [suggestions, setSuggestions] = useState(DEFAULT_SUGGESTIONS);
-  const [selectedSuggestion, setSelectedSuggestion] = useState("");
+  const [marketingPlan, setMarketingPlan] = useState(DEFAULT_MARKETING_PLAN);
+  const [selectedStepIds, setSelectedStepIds] = useState([]);
   const [recommendedActions, setRecommendedActions] = useState([]);
   const [selectedActions, setSelectedActions] = useState([]);
   const [outputs, setOutputs] = useState({});
@@ -74,11 +94,47 @@ export default function Home() {
   const [generateLoading, setGenerateLoading] = useState(false);
   const [regeneratingAction, setRegeneratingAction] = useState("");
   const [error, setError] = useState("");
+  const [sendSuccess, setSendSuccess] = useState("");
+
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [sendLoading, setSendLoading] = useState(false);
+  const [sendTarget, setSendTarget] = useState({ channel: "", content: "" });
+  const [trackingSummary, setTrackingSummary] = useState({
+    totals: { sent: 0, opens: 0, clicks: 0, open_rate: 0, click_rate: 0 },
+    byChannel: [],
+  });
+  const [trackingLoading, setTrackingLoading] = useState(false);
 
   const latestUserMessage = useMemo(() => {
     const msg = [...chatMessages].reverse().find((item) => item.role === "user");
     return msg?.content || description;
   }, [chatMessages, description]);
+
+  const dynamicActions = useMemo(
+    () => deriveActionsFromPlanSteps(marketingPlan, selectedStepIds),
+    [marketingPlan, selectedStepIds]
+  );
+
+  useEffect(() => {
+    setSelectedActions((prev) => prev.filter((item) => dynamicActions.includes(item)));
+  }, [dynamicActions]);
+
+  const fetchTrackingSummary = async () => {
+    setTrackingLoading(true);
+    try {
+      const res = await fetch("/api/tracking-summary");
+      const data = await res.json();
+      if (res.ok && !data?.error) {
+        setTrackingSummary(data);
+      }
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTrackingSummary();
+  }, []);
 
   const handleAttachmentChange = (e) => {
     const file = e.target.files?.[0];
@@ -87,40 +143,40 @@ export default function Home() {
 
   const handleAskAi = async (text) => {
     setError("");
+    setSendSuccess("");
     const userMsg = { id: getId(), role: "user", content: text };
     setChatMessages((prev) => [...prev, userMsg]);
     setDescription(text);
     setAskLoading(true);
 
-    const payload = {
-      company,
-      campaign,
-      website,
-      description: text,
-      attachmentName,
-      step: "suggestions",
-      chatMessages: [...chatMessages, userMsg],
-    };
-
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          company,
+          campaign,
+          website,
+          description: text,
+          attachmentName,
+          step: "suggestions",
+          chatMessages: [...chatMessages, userMsg],
+        }),
       });
       const data = await res.json();
-      if (!res.ok || data?.error) throw new Error(data?.error || "Suggestion generation failed.");
+      if (!res.ok || data?.error) throw new Error(data?.error || "Plan generation failed.");
 
-      const nextSuggestions =
-        Array.isArray(data?.suggestions) && data.suggestions.length ? data.suggestions : DEFAULT_SUGGESTIONS;
-      const nextActions =
-        Array.isArray(data?.recommendedActions) && data.recommendedActions.length
-          ? data.recommendedActions
-          : DEFAULT_ACTIONS;
+      const nextPlan = Array.isArray(data?.marketingPlan) && data.marketingPlan.length
+        ? data.marketingPlan
+        : DEFAULT_MARKETING_PLAN;
+      setMarketingPlan(nextPlan);
 
-      setSuggestions(nextSuggestions);
-      setRecommendedActions(nextActions);
-      setSelectedActions((prev) => Array.from(new Set([...prev, ...nextActions.slice(0, 2)])));
+      const initialSteps = nextPlan.slice(0, 2).map((item) => item.id);
+      setSelectedStepIds(initialSteps);
+
+      const suggested = Array.isArray(data?.recommendedActions) ? data.recommendedActions : [];
+      setRecommendedActions(suggested);
+
       setChatMessages((prev) => [
         ...prev,
         {
@@ -128,7 +184,7 @@ export default function Home() {
           role: "assistant",
           content:
             data?.aiMessage ||
-            "Here are tailored suggestions and next best actions. Select channels and click Generate Content.",
+            "Marketing Plan is ready. Select steps, pick channels in Next Best Actions, then generate content.",
         },
       ]);
     } catch (err) {
@@ -136,6 +192,12 @@ export default function Home() {
     } finally {
       setAskLoading(false);
     }
+  };
+
+  const handleToggleStep = (stepId) => {
+    setSelectedStepIds((prev) =>
+      prev.includes(stepId) ? prev.filter((id) => id !== stepId) : [...prev, stepId]
+    );
   };
 
   const handleToggleAction = (action) => {
@@ -148,30 +210,33 @@ export default function Home() {
     if (!actionsToGenerate.length) return;
     setGenerateLoading(true);
     setError("");
+    setSendSuccess("");
 
-    const payload = {
-      company,
-      campaign,
-      website,
-      description: latestUserMessage,
-      selectedActions: actionsToGenerate,
-      step: "content",
-      chatMessages,
-      attachmentName,
-    };
+    const selectedPlanSteps = marketingPlan
+      .filter((step) => selectedStepIds.includes(step.id))
+      .map((step) => `${step.title}: ${step.description}`);
 
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          company,
+          campaign,
+          website,
+          description: latestUserMessage,
+          selectedPlanSteps,
+          selectedActions: actionsToGenerate,
+          step: "content",
+          chatMessages,
+          attachmentName,
+        }),
       });
       const data = await res.json();
       if (!res.ok || data?.error) throw new Error(data?.error || "Content generation failed.");
 
       const mapped = toActionResponseMap(data);
-      const finalOutputs = Object.keys(mapped).length > 0 ? mapped : {};
-      setOutputs((prev) => ({ ...prev, ...finalOutputs }));
+      setOutputs((prev) => ({ ...prev, ...mapped }));
     } catch (err) {
       setError(err.message || "Unable to generate content right now.");
     } finally {
@@ -180,7 +245,46 @@ export default function Home() {
     }
   };
 
-  const renderedActions = recommendedActions.length > 0 ? recommendedActions : DEFAULT_ACTIONS;
+  const renderedActions = dynamicActions.length ? dynamicActions : recommendedActions.length ? recommendedActions : DEFAULT_ACTIONS;
+
+  const handleOpenSendModal = (channel) => {
+    setSendTarget({ channel, content: outputs[channel] || "" });
+    setSendModalOpen(true);
+    setSendSuccess("");
+  };
+
+  const handleSubmitSend = async ({ campaignName, channel, recipients, content }) => {
+    setSendLoading(true);
+    setError("");
+    setSendSuccess("");
+    try {
+      const res = await fetch("/api/campaign-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaign_name: campaignName || campaign,
+          channel,
+          recipients,
+          content,
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          opens: 0,
+          clicks: 0,
+          // tracking-ready placeholders
+          tracking: { opens_enabled: false, clicks_enabled: false },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.error) throw new Error(data?.error || "Failed to save send log.");
+      setSendSuccess(`Dummy send logged for ${channel}.`);
+      setSendModalOpen(false);
+      await fetchTrackingSummary();
+    } catch (err) {
+      setError(err.message || "Failed to save send log.");
+    } finally {
+      setSendLoading(false);
+    }
+  };
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -199,15 +303,9 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-xl font-semibold sm:text-2xl">AI Marketing Workflow Studio</h1>
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-300">
-                Plan · Create · Publish · Grow
-              </p>
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-300">Plan · Create · Publish · Grow</p>
             </div>
           </div>
-          <p className="mt-2 max-w-2xl text-sm text-slate-300 sm:text-base">
-            Describe your goal in chat, review AI suggestions, choose next best actions, and generate
-            channel-wise content.
-          </p>
         </div>
       </section>
 
@@ -278,13 +376,10 @@ export default function Home() {
 
           <div className="space-y-5 xl:col-span-3">
             <SuggestionsPanel
-              suggestions={suggestions}
-              selectedSuggestion={selectedSuggestion}
+              marketingPlan={marketingPlan}
+              selectedStepIds={selectedStepIds}
+              onToggleStep={handleToggleStep}
               loading={askLoading}
-              onSelect={(value) => {
-                setSelectedSuggestion(value);
-                setCampaign(value);
-              }}
             />
 
             <NextBestActions
@@ -296,8 +391,11 @@ export default function Home() {
             />
 
             {error ? (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+            ) : null}
+            {sendSuccess ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                {sendSuccess}
               </div>
             ) : null}
 
@@ -314,6 +412,7 @@ export default function Home() {
                       setRegeneratingAction(action);
                       await handleGenerateContent([action]);
                     }}
+                    onSend={() => handleOpenSendModal(action)}
                   />
                 ))}
               </div>
@@ -324,9 +423,91 @@ export default function Home() {
                 </div>
               ) : null}
             </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-semibold text-slate-900">Tracking Dashboard (Dummy)</h3>
+                <button
+                  onClick={fetchTrackingSummary}
+                  className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Refresh
+                </button>
+              </div>
+              <p className="mt-1 text-sm text-slate-500">
+                Data comes from Supabase `campaign_logs` and is ready for future open/click tracking.
+              </p>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">Sent</p>
+                  <p className="text-lg font-semibold text-slate-900">{trackingSummary.totals.sent}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">Opens</p>
+                  <p className="text-lg font-semibold text-slate-900">{trackingSummary.totals.opens}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">Clicks</p>
+                  <p className="text-lg font-semibold text-slate-900">{trackingSummary.totals.clicks}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">Open Rate</p>
+                  <p className="text-lg font-semibold text-slate-900">{trackingSummary.totals.open_rate}%</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">Click Rate</p>
+                  <p className="text-lg font-semibold text-slate-900">{trackingSummary.totals.click_rate}%</p>
+                </div>
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-slate-500">
+                      <th className="px-2 py-2 font-medium">Channel</th>
+                      <th className="px-2 py-2 font-medium">Sent</th>
+                      <th className="px-2 py-2 font-medium">Opens</th>
+                      <th className="px-2 py-2 font-medium">Clicks</th>
+                      <th className="px-2 py-2 font-medium">Open %</th>
+                      <th className="px-2 py-2 font-medium">Click %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trackingSummary.byChannel.map((item) => (
+                      <tr key={item.channel} className="border-b border-slate-100 text-slate-700">
+                        <td className="px-2 py-2">{item.channel}</td>
+                        <td className="px-2 py-2">{item.sent}</td>
+                        <td className="px-2 py-2">{item.opens}</td>
+                        <td className="px-2 py-2">{item.clicks}</td>
+                        <td className="px-2 py-2">{item.open_rate}%</td>
+                        <td className="px-2 py-2">{item.click_rate}%</td>
+                      </tr>
+                    ))}
+                    {!trackingLoading && trackingSummary.byChannel.length === 0 ? (
+                      <tr>
+                        <td className="px-2 py-3 text-slate-500" colSpan={6}>
+                          No tracking rows yet. Click Send on any output to create one.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       </section>
+
+      <SendModal
+        open={sendModalOpen}
+        channel={sendTarget.channel}
+        content={sendTarget.content}
+        campaignName={campaign}
+        sending={sendLoading}
+        onClose={() => setSendModalOpen(false)}
+        onSubmit={handleSubmitSend}
+      />
     </main>
   );
 }

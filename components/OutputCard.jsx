@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 
-export default function OutputCard({ title, content, onRegenerate, regenerating }) {
+export default function OutputCard({ title, content, onRegenerate, onSend, regenerating }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -37,6 +37,12 @@ export default function OutputCard({ title, content, onRegenerate, regenerating 
             className="rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:bg-slate-400"
           >
             {regenerating ? "Regenerating..." : "Regenerate"}
+          </button>
+          <button
+            onClick={onSend}
+            className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
+          >
+            Send
           </button>
         </div>
       </div>

@@ -32,6 +32,11 @@ export default function NextBestActions({
             </motion.button>
           );
         })}
+        {actions.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+            Select at least one marketing plan step to see channel actions.
+          </div>
+        ) : null}
       </div>
 
       <button
