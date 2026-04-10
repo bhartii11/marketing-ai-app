@@ -1,6 +1,24 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "../../../lib/supabaseServer";
 
+export async function GET(req) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const limit = Math.min(Number(searchParams.get("limit") || 200), 500);
+    const supabase = getSupabaseServerClient();
+    const { data, error } = await supabase
+      .from("campaign_logs")
+      .select("id,campaign_name,channel,recipients,content,status,sent_at,opens,clicks")
+      .order("sent_at", { ascending: false })
+      .limit(limit);
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ rows: data || [] });
+  } catch (error) {
+    return NextResponse.json({ error: error?.message || "Failed to fetch campaign logs." }, { status: 500 });
+  }
+}
+
 export async function POST(req) {
   try {
     const body = await req.json();

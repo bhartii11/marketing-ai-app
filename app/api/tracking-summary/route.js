@@ -48,6 +48,15 @@ export async function GET() {
       }))
       .sort((a, b) => b.sent - a.sent);
 
+    const byDateMap = {};
+    for (const row of rows) {
+      const key = new Date(row.sent_at).toISOString().slice(0, 10);
+      if (!byDateMap[key]) byDateMap[key] = { date: key, opens: 0, clicks: 0 };
+      byDateMap[key].opens += Number(row.opens || 0);
+      byDateMap[key].clicks += Number(row.clicks || 0);
+    }
+    const timeSeries = Object.values(byDateMap).sort((a, b) => a.date.localeCompare(b.date));
+
     return NextResponse.json({
       totals: {
         sent: totalSent,
@@ -55,8 +64,10 @@ export async function GET() {
         clicks: totalClicks,
         open_rate: pct(totalOpens, totalSent),
         click_rate: pct(totalClicks, totalSent),
+        conversion_rate: pct(totalClicks, totalSent),
       },
       byChannel,
+      timeSeries,
     });
   } catch (error) {
     return NextResponse.json({ error: error?.message || "Failed to fetch tracking summary." }, { status: 500 });
