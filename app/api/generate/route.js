@@ -172,12 +172,8 @@ Rules:
     const prompt = `Return ONLY valid JSON with this shape:
 {
   "outputs": {
-    "LinkedIn Post": "...",
-    "Email Campaign": "...",
-    "WhatsApp Outreach": "...",
-    "Naukri Job Post": "...",
-    "Ad Copy": "...",
-    "SMS Campaign": "..."
+    "<selected action 1>": "...",
+    "<selected action 2>": "..."
   }
 }
 
@@ -194,46 +190,20 @@ Rules:
 - Keep each output actionable and channel-specific.
 - No markdown code fences.`;
 
-    const raw = await callOpenAI({
-      apiKey,
-      prompt,
-      schema: {
-        name: "content_outputs_payload",
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            outputs: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                "LinkedIn Post": { type: "string" },
-                "Email Campaign": { type: "string" },
-                "WhatsApp Outreach": { type: "string" },
-                "Naukri Job Post": { type: "string" },
-                "Ad Copy": { type: "string" },
-                "SMS Campaign": { type: "string" },
-              },
-              required: [
-                "LinkedIn Post",
-                "Email Campaign",
-                "WhatsApp Outreach",
-                "Naukri Job Post",
-                "Ad Copy",
-                "SMS Campaign",
-              ],
-            },
-          },
-          required: ["outputs"],
-        },
-      },
-    });
+    const raw = await callOpenAI({ apiKey, prompt });
     const parsed = extractJson(raw);
     if (!parsed?.outputs || typeof parsed.outputs !== "object") {
       throw new Error("Model returned invalid content output format.");
     }
 
-    return NextResponse.json({ outputs: parsed.outputs });
+    const filteredOutputs = {};
+    for (const action of safeActions) {
+      if (typeof parsed.outputs[action] === "string") {
+        filteredOutputs[action] = parsed.outputs[action];
+      }
+    }
+
+    return NextResponse.json({ outputs: filteredOutputs });
   } catch (error) {
     return NextResponse.json(
       { error: error?.message || "Failed to generate content." },

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CircleHelp } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function ChatBox({ messages, onSend, loading }) {
@@ -26,7 +27,16 @@ export default function ChatBox({ messages, onSend, loading }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-4 py-3">
-        <h3 className="text-sm font-semibold text-slate-900">Description Chat</h3>
+        <h3 className="inline-flex items-center text-sm font-semibold text-slate-900">
+          Description Chat
+          <span className="group relative ml-1 inline-flex">
+            <CircleHelp size={14} className="text-slate-400" />
+            <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden w-56 -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-2 text-xs font-normal text-white shadow-lg group-hover:block">
+              Write your campaign context in plain language. AI uses this as the primary brief for
+              suggestions and generated content.
+            </span>
+          </span>
+        </h3>
         <p className="mt-0.5 text-xs text-slate-500">Describe goals, audience, and constraints.</p>
       </div>
 

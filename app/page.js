@@ -1,6 +1,8 @@
 ﻿"use client";
 
 import { useMemo, useState } from "react";
+import { CircleHelp } from "lucide-react";
+import Image from "next/image";
 import ChatBox from "../components/ChatBox";
 import SuggestionsPanel from "../components/SuggestionsPanel";
 import NextBestActions from "../components/NextBestActions";
@@ -33,12 +35,25 @@ const toActionResponseMap = (raw) => {
   return mapped;
 };
 
+function HelpIcon({ text }) {
+  return (
+    <span className="group relative ml-1 inline-flex align-middle">
+      <CircleHelp size={14} className="text-slate-400" />
+      <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden w-56 -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-2 text-xs font-normal text-white shadow-lg group-hover:block">
+        {text}
+      </span>
+    </span>
+  );
+}
+
 export default function Home() {
-  const [company, setCompany] = useState("");
-  const [campaign, setCampaign] = useState("");
-  const [website, setWebsite] = useState("");
+  const [company, setCompany] = useState("Cloud Certitude");
+  const [campaign, setCampaign] = useState("Hiring experienced MuleSoft developers");
+  const [website, setWebsite] = useState("https://www.cloudcertitude.com");
   const [attachmentName, setAttachmentName] = useState("");
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState(
+    "We want to hire experienced MuleSoft developers in India within 30 days. Focus on strong reach and quality applicants."
+  );
 
   const [chatMessages, setChatMessages] = useState([
     {
@@ -51,7 +66,7 @@ export default function Home() {
 
   const [suggestions, setSuggestions] = useState(DEFAULT_SUGGESTIONS);
   const [selectedSuggestion, setSelectedSuggestion] = useState("");
-  const [recommendedActions, setRecommendedActions] = useState(DEFAULT_ACTIONS);
+  const [recommendedActions, setRecommendedActions] = useState([]);
   const [selectedActions, setSelectedActions] = useState([]);
   const [outputs, setOutputs] = useState({});
 
@@ -165,13 +180,30 @@ export default function Home() {
     }
   };
 
-  const renderedActions = Array.from(new Set([...recommendedActions, ...DEFAULT_ACTIONS]));
+  const renderedActions = recommendedActions.length > 0 ? recommendedActions : DEFAULT_ACTIONS;
 
   return (
     <main className="min-h-screen bg-slate-50">
       <section className="border-b border-slate-200 bg-gradient-to-br from-slate-950 to-slate-800 text-white">
-        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
-          <h1 className="text-2xl font-semibold sm:text-3xl">AI Marketing Workflow Studio</h1>
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl border border-white/20 bg-white/95 p-1.5">
+              <Image
+                src="/ai-workflow-logo.png"
+                alt="AI Marketing Workflow Studio logo"
+                width={240}
+                height={80}
+                className="h-12 w-auto object-contain sm:h-14"
+                priority
+              />
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold sm:text-2xl">AI Marketing Workflow Studio</h1>
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-300">
+                Plan · Create · Publish · Grow
+              </p>
+            </div>
+          </div>
           <p className="mt-2 max-w-2xl text-sm text-slate-300 sm:text-base">
             Describe your goal in chat, review AI suggestions, choose next best actions, and generate
             channel-wise content.
@@ -186,7 +218,10 @@ export default function Home() {
               <h2 className="text-base font-semibold text-slate-900">Campaign Inputs</h2>
               <div className="mt-4 space-y-3">
                 <label className="block text-sm font-medium text-slate-700">
-                  Company Name
+                  <span className="inline-flex items-center">
+                    Company Name
+                    <HelpIcon text="Enter your company or brand name as it should appear in generated content." />
+                  </span>
                   <input
                     value={company}
                     onChange={(e) => setCompany(e.target.value)}
@@ -196,7 +231,10 @@ export default function Home() {
                 </label>
 
                 <label className="block text-sm font-medium text-slate-700">
-                  Campaign Goal
+                  <span className="inline-flex items-center">
+                    Campaign Goal
+                    <HelpIcon text="Describe the outcome you want, like hiring, lead generation, or product awareness." />
+                  </span>
                   <input
                     value={campaign}
                     onChange={(e) => setCampaign(e.target.value)}
@@ -206,7 +244,10 @@ export default function Home() {
                 </label>
 
                 <label className="block text-sm font-medium text-slate-700">
-                  Website / Link
+                  <span className="inline-flex items-center">
+                    Website / Link
+                    <HelpIcon text="Add your website, job post, or landing page URL for better context." />
+                  </span>
                   <input
                     value={website}
                     onChange={(e) => setWebsite(e.target.value)}
@@ -216,7 +257,10 @@ export default function Home() {
                 </label>
 
                 <label className="block text-sm font-medium text-slate-700">
-                  File Upload
+                  <span className="inline-flex items-center">
+                    File Upload
+                    <HelpIcon text="Upload an optional brief, JD, or supporting document to guide the AI output." />
+                  </span>
                   <input
                     type="file"
                     onChange={handleAttachmentChange}
