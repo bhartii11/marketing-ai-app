@@ -1,140 +1,244 @@
-export async function POST(req) {
+import { NextResponse } from "next/server";
+
+const OPENAI_URL = "https://api.openai.com/v1/responses";
+
+const SYSTEM_PROMPT = `You are a senior marketing strategist for B2B campaigns.
+Return concise, practical outputs in JSON only.`;
+
+function extractJson(text) {
+  if (!text) return null;
   try {
-    console.log("OPENAI KEY:", process.env.OPENAI_API_KEY);
-
-    const body = await req.json();
-
-    const prompt = `
-You are a marketing expert.
-
-Create:
-1. Email campaign
-2. WhatsApp message (short & engaging)
-3. LinkedIn post (professional)
-
-Company: ${body.company}
-Campaign: ${body.campaign}
-Description: ${body.description}
-
-STRICT RULES:
-- Return ONLY valid JSON
-- No explanation
-- No markdown
-- No headings
-
-FORMAT:
-{
-  "email": "string",
-  "whatsapp": "string",
-  "linkedin": "string"
-}
-`;
-
-    const response = await fetch(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          response_format: { type: "json_object" }, // 🔥 important
-          messages: [
-            { role: "system", content: "You are a marketing expert." },
-            { role: "user", content: prompt },
-          ],
-        }),
+    return JSON.parse(text);
+  } catch (_) {
+    // Try markdown code fences first.
+    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenceMatch?.[1]) {
+      try {
+        return JSON.parse(fenceMatch[1]);
+      } catch (_) {
+        // continue
       }
-    );
-
-    const result = await response.json();
-
-    // 🔍 Debug
-    console.log("OpenAI response:", result);
-
-    // ❌ If API failed
-    if (!result.choices) {
-      return Response.json({
-        error: result.error?.message || "OpenAI API failed",
-      });
     }
 
-    const text = result.choices[0]?.message?.content || "";
-
-    try {
-      // Since we forced JSON, this should work directly
-      return Response.json(JSON.parse(text));
-    } catch {
-      // fallback (rare case)
-      return Response.json({
-        email: text,
-        whatsapp: text,
-        linkedin: text,
-      });
+    // Try the first JSON object in plain text.
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      const slice = text.slice(start, end + 1);
+      try {
+        return JSON.parse(slice);
+      } catch (_) {
+        return null;
+      }
     }
-  } catch (error) {
-    return Response.json({ error: error.message });
+
+    return null;
   }
 }
 
+function extractTextFromResponse(data) {
+  if (typeof data?.output_text === "string" && data.output_text.trim()) {
+    return data.output_text;
+  }
 
-// export async function POST(req) {
-//   try {
-//     console.log("API KEY:", process.env.GEMINI_API_KEY);
-//     const body = await req.json();
+  const outputs = Array.isArray(data?.output) ? data.output : [];
+  const chunks = [];
+  for (const out of outputs) {
+    const content = Array.isArray(out?.content) ? out.content : [];
+    for (const item of content) {
+      if (typeof item?.text === "string") chunks.push(item.text);
+      if (typeof item?.output_text === "string") chunks.push(item.output_text);
+    }
+  }
 
-//     const prompt = `
-// You are a marketing expert. Return ONLY valid JSON.
-// Keys: "email", "whatsapp", "linkedin".
+  return chunks.join("\n").trim();
+}
 
-// Company: ${body.company}
-// Campaign: ${body.campaign}
-// Description: ${body.description}
-// `;
+async function callOpenAI({ apiKey, prompt, schema }) {
+  const res = await fetch(OPENAI_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4.1-mini",
+      input: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: prompt },
+      ],
+      text: schema
+        ? {
+            format: {
+              type: "json_schema",
+              name: schema.name,
+              schema: schema.schema,
+              strict: true,
+            },
+          }
+        : { format: { type: "text" } },
+    }),
+  });
 
-//     const response = await fetch(
-//       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-//       {
-//         method: "POST",
-//         headers: {
-//           "Content-Type": "application/json",
-//         },
-//         body: JSON.stringify({
-//           contents: [{ parts: [{ text: prompt }] }],
-//         }),
-//       }
-//     );
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error?.message || "OpenAI request failed.");
+  }
 
-//     const result = await response.json();
+  const text = extractTextFromResponse(data);
+  return text;
+}
 
-//     // 🔍 Debug (optional but useful)
-//     console.log("Gemini response:", result);
+export async function POST(req) {
+  try {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "OPENAI_API_KEY is missing. Add it in .env.local and restart dev server." },
+        { status: 500 }
+      );
+    }
 
-//     // ❌ If API failed
-//     if (!result.candidates) {
-//       return Response.json({
-//         error: result.error?.message || "Gemini API failed",
-//       });
-//     }
+    const body = await req.json();
+    const {
+      company = "",
+      campaign = "",
+      website = "",
+      description = "",
+      selectedActions = [],
+      step = "suggestions",
+      attachmentName = "",
+    } = body || {};
 
-//     const text =
-//       result.candidates[0]?.content?.parts?.[0]?.text || "";
+    if (step === "suggestions") {
+      const prompt = `Return ONLY valid JSON with this shape:
+{
+  "suggestions": ["...","...","...","..."],
+  "recommendedActions": ["...","...","..."],
+  "aiMessage": "..."
+}
 
-//     const clean = text.replace(/```json|```/g, "").trim();
+Context:
+- Company: ${company}
+- Campaign Goal: ${campaign}
+- Website: ${website}
+- Attachment: ${attachmentName}
+- Description: ${description}
 
-//     try {
-//       return Response.json(JSON.parse(clean));
-//     } catch {
-//       // fallback if JSON not proper
-//       return Response.json({
-//         email: text,
-//         whatsapp: text,
-//         linkedin: text,
-//       });
-//     }
-//   } catch (error) {
-//     return Response.json({ error: error.message });
-//   }
-// }
+Rules:
+- suggestions: exactly 4 short campaign ideas.
+- recommendedActions: 3-5 items from: LinkedIn Post, Email Campaign, WhatsApp Outreach, Naukri Job Post, Ad Copy, SMS Campaign.
+- aiMessage: 1-2 short lines.`;
+
+      const raw = await callOpenAI({
+        apiKey,
+        prompt,
+        schema: {
+          name: "suggestions_payload",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              suggestions: {
+                type: "array",
+                items: { type: "string" },
+                minItems: 4,
+                maxItems: 4,
+              },
+              recommendedActions: {
+                type: "array",
+                items: { type: "string" },
+                minItems: 3,
+                maxItems: 6,
+              },
+              aiMessage: { type: "string" },
+            },
+            required: ["suggestions", "recommendedActions", "aiMessage"],
+          },
+        },
+      });
+      const parsed = extractJson(raw);
+      if (!parsed) {
+        throw new Error("Model returned non-JSON response for suggestions.");
+      }
+      return NextResponse.json(parsed);
+    }
+
+    const safeActions = Array.isArray(selectedActions) ? selectedActions.filter(Boolean) : [];
+    if (safeActions.length === 0) {
+      return NextResponse.json({ error: "Please select at least one action." }, { status: 400 });
+    }
+
+    const prompt = `Return ONLY valid JSON with this shape:
+{
+  "outputs": {
+    "LinkedIn Post": "...",
+    "Email Campaign": "...",
+    "WhatsApp Outreach": "...",
+    "Naukri Job Post": "...",
+    "Ad Copy": "...",
+    "SMS Campaign": "..."
+  }
+}
+
+Context:
+- Company: ${company}
+- Campaign Goal: ${campaign}
+- Website: ${website}
+- Attachment: ${attachmentName}
+- Description: ${description}
+- Selected actions: ${safeActions.join(", ")}
+
+Rules:
+- Include ONLY selected actions in outputs.
+- Keep each output actionable and channel-specific.
+- No markdown code fences.`;
+
+    const raw = await callOpenAI({
+      apiKey,
+      prompt,
+      schema: {
+        name: "content_outputs_payload",
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            outputs: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                "LinkedIn Post": { type: "string" },
+                "Email Campaign": { type: "string" },
+                "WhatsApp Outreach": { type: "string" },
+                "Naukri Job Post": { type: "string" },
+                "Ad Copy": { type: "string" },
+                "SMS Campaign": { type: "string" },
+              },
+              required: [
+                "LinkedIn Post",
+                "Email Campaign",
+                "WhatsApp Outreach",
+                "Naukri Job Post",
+                "Ad Copy",
+                "SMS Campaign",
+              ],
+            },
+          },
+          required: ["outputs"],
+        },
+      },
+    });
+    const parsed = extractJson(raw);
+    if (!parsed?.outputs || typeof parsed.outputs !== "object") {
+      throw new Error("Model returned invalid content output format.");
+    }
+
+    return NextResponse.json({ outputs: parsed.outputs });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error?.message || "Failed to generate content." },
+      { status: 500 }
+    );
+  }
+}
+
